@@ -32,6 +32,11 @@ our @urls;
 # Extract all hrefs that include "/Portals/55/Messages/NAVADMIN/NAV$year" in the URL
 @urls = $html_content =~ /href="(.*?\/Portals\/55\/Messages\/NAVADMIN\/NAV$year.*?)"/g;
 
+#append each @url value with $baseUrl
+foreach my $url (@urls) {
+    $url = $baseUrl . $url;
+}
+
 # Remove any instances of "á" in the table
 $table =~ s/á//g;
 
