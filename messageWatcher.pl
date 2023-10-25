@@ -17,18 +17,11 @@ our $AlNavUrl = "$baseNavyUrl/References/Messages/ALNAV-$currentYear/";
 our $MaradminUrl = "$baseUsmcUrl/News/Messages/Category/14336/Year/$currentYear/";
 our $AlMarUrl = "$baseUsmcUrl/News/Messages/Category/14335/Year/$currentYear/";
 
+our $scanFrequency = 60; #in seconds
+our $scanActive = 1; #1 = active, 0 = inactive
 
-# Get the HTML content of the URL
-my $html_content = get($NavadminUrl);
-
-# Create a new HTML::TableExtract object
-my $te = HTML::TableExtract->new( headers => [qw(Message Subject Date)] );
-
-# Parse the HTML content and extract the table data
-$te->parse($html_content);
-
-# Get the first table found
-our $table = $te->first_table_found;
+our $html_content;
+our $table;
 
 # Initialize the active message index
 our $NavadminActiveIndex = 0;
@@ -45,88 +38,107 @@ our (@AlNavMessages, @AlNavSubjects, @AlNavDates, @AlNavUrls);
 our (@MaradminMessages, @MaradminSubjects, @MaradminDates, @MaradminUrls);
 our (@AlMarMessages, @AlMarSubjects, @AlMarDates, @AlMarUrls);
 
-#clear all arrays
-@NavadminMessages = @NavadminSubjects = @NavadminDates = @NavadminUrls = ();
-@AlNavMessages = @AlNavSubjects = @AlNavDates = @AlNavUrls = ();
-@MaradminMessages = @MaradminSubjects = @MaradminDates = @MaradminUrls = ();
-@AlMarMessages = @AlMarSubjects = @AlMarDates = @AlMarUrls = ();
+scanMessages();
 
-#load state from csv file
-load_state_from_csv();
+sub scanMessages {
+    # Get the HTML content of the URL
+    $html_content = get($NavadminUrl);
 
-#load data from csv file
-#refreshNavadminDataFromCSV();
+    # Create a new HTML::TableExtract object
+    my $te = HTML::TableExtract->new( headers => [qw(Message Subject Date)] );
 
-#load NAVADMIN data from web
-refreshNavadminDataFromWeb();
+    # Parse the HTML content and extract the table data
+    $te->parse($html_content);
 
-refreshUpdateDateTime();
+    # Get the first table found
+    $table = $te->first_table_found;
 
-#If new index > old index: There are new messages
-my $newHighestMessageNumber = highestMessageNumber(1);
-if ($newHighestMessageNumber > $NavadminActiveIndex) {
-    #print statement showing there are new messages in red
-    print "\e[31mThere are new NAVADMIN messages.\e[0m\n";
-    print "Old highest NAVADMIN message index: $NavadminActiveIndex\n";
-    print "New highest NAVADMIN message index: $newHighestMessageNumber\n";
+    #clear all arrays
+    @NavadminMessages = @NavadminSubjects = @NavadminDates = @NavadminUrls = ();
+    @AlNavMessages = @AlNavSubjects = @AlNavDates = @AlNavUrls = ();
+    @MaradminMessages = @MaradminSubjects = @MaradminDates = @MaradminUrls = ();
+    @AlMarMessages = @AlMarSubjects = @AlMarDates = @AlMarUrls = ();
 
-    #Iterate through each of the new messages and print them in green
-    foreach my $message (@NavadminMessages) {
-        my $currentMessageNumber = messageNumber($message);
-        if ($currentMessageNumber <= $NavadminActiveIndex) {
-            next;
+    #load state from csv file
+    load_state_from_csv();
+
+    #load data from csv file
+    #refreshNavadminDataFromCSV();
+
+    #load NAVADMIN data from web
+    refreshNavadminDataFromWeb();
+
+    refreshUpdateDateTime();
+
+    #If new index > old index: There are new messages
+    my $newHighestMessageNumber = highestMessageNumber(1);
+    if ($newHighestMessageNumber > $NavadminActiveIndex) {
+        #print statement showing there are new messages in red
+        print "\e[31mThere are new NAVADMIN messages.\e[0m\n";
+        print "Old highest NAVADMIN message index: $NavadminActiveIndex\n";
+        print "New highest NAVADMIN message index: $newHighestMessageNumber\n";
+
+        #Iterate through each of the new messages and print them in green
+        foreach my $message (@NavadminMessages) {
+            my $currentMessageNumber = messageNumber($message);
+            if ($currentMessageNumber <= $NavadminActiveIndex) {
+                next;
+            }
+
+            my $index = findMessageIndex($currentMessageNumber);
+            
+            my $subject = $NavadminSubjects[$index];
+            my $date = $NavadminDates[$index];
+            my $url = $NavadminUrls[$index];
+
+            # Remove any escape sequences from the message, subject, and date
+            $message =~ s/\e\[\d+m//g;
+            $message =~ s/á//g;
+            $message =~ s/Â//g;
+            $message =~ s/\s+/ /g;
+
+            $subject =~ s/\e\[\d+m//g;
+            $subject =~ s/á//g;
+            $subject =~ s/Â//g;
+            $subject =~ s/\s+/ /g;
+
+            $date =~ s/\e\[\d+m//g;
+            $date =~ s/á//g;
+            $date =~ s/Â//g;
+            $date =~ s/\s+/ /g;
+
+            print "\e[32m New NAVADMIN found: $message || Subject: $subject || Date: $date || $url\e[0m\n";
+            #Trigger other actions here for this new message
         }
 
-        my $index = findMessageIndex($currentMessageNumber);
-        
-        my $subject = $NavadminSubjects[$index];
-        my $date = $NavadminDates[$index];
-        my $url = $NavadminUrls[$index];
 
-        # Remove any escape sequences from the message, subject, and date
-        $message =~ s/\e\[\d+m//g;
-        $message =~ s/á//g;
-        $message =~ s/\s+/ /g;
-
-        $subject =~ s/\e\[\d+m//g;
-        $subject =~ s/á//g;
-        $subject =~ s/\s+/ /g;
-
-        $date =~ s/\e\[\d+m//g;
-        $date =~ s/á//g;
-        $date =~ s/\s+/ /g;
-
-        print "\e[32m New NAVADMIN found: $message || Subject: $subject || Date: $date || $url\e[0m\n";
-        #Trigger other actions here for this new message
+    } else {
+        print "\e[32mThere are no new NAVADMIN messages!\e[0m\n";
+        print "Old highest message index: $NavadminActiveIndex\n";
+        print "New highest message index: $newHighestMessageNumber\n";
     }
 
+    #displayNavadminMessages();
 
-} else {
-    print "\e[32mThere are no new NAVADMIN messages!\e[0m\n";
-    print "Old highest message index: $NavadminActiveIndex\n";
-    print "New highest message index: $newHighestMessageNumber\n";
+    #set the active NAVADMIN index
+    $NavadminActiveIndex = highestMessageNumber(1);
+
+    #set the active ALNAV index
+    $AlNavActiveIndex = highestMessageNumber(2);
+
+    #set the active MARADMIN index
+    $MaradminActiveIndex = highestMessageNumber(3);
+
+    #set the active ALMAR index
+    $AlMarActiveIndex = highestMessageNumber(4);
+
+
+    #save state to csv file
+    write_state_to_csv();
+
+    #save data to csv file
+    write_to_csv();
 }
-
-#displayNavadminMessages();
-
-#set the active NAVADMIN index
-$NavadminActiveIndex = highestMessageNumber(1);
-
-#set the active ALNAV index
-$AlNavActiveIndex = highestMessageNumber(2);
-
-#set the active MARADMIN index
-$MaradminActiveIndex = highestMessageNumber(3);
-
-#set the active ALMAR index
-$AlMarActiveIndex = highestMessageNumber(4);
-
-
-#save state to csv file
-write_state_to_csv();
-
-#save data to csv file
-write_to_csv();
 
 sub write_to_csv {
 
