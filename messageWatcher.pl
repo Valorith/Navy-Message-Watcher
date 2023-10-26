@@ -17,7 +17,7 @@ our $AlNavUrl = "$baseNavyUrl/References/Messages/ALNAV-$currentYear/";
 our $MaradminUrl = "$baseUsmcUrl/News/Messages/Category/14336/Year/$currentYear/";
 our $AlMarUrl = "$baseUsmcUrl/News/Messages/Category/14335/Year/$currentYear/";
 
-our $scanFrequency = 60; #in seconds
+our $scanFrequency = 1; #in minutes
 our $scanActive = 1; #1 = active, 0 = inactive
 
 our $html_content;
@@ -32,15 +32,163 @@ our $AlMarActiveIndex = 0;
 our $lastUpdateDate;
 our $lastUpdateTime;
 
+our @watchers = (); #Each watcher will have a name, email address, a list of subjects keywords and a list of body keywords
+
+#load watchers from csv file
+load_watchers_from_csv();
+
+#write a sub that writes watcher data to a csv file named "watchers.csv" in the root directory
+sub write_watchers_to_csv {
+
+    my $csv = Text::CSV->new({ binary => 1, auto_diag => 1, eol => "\n" });
+    my $filename = "watchers.csv";
+
+    open(my $fh, ">:encoding(utf8)", $filename) or die "Could not open '$filename' for writing: $!";
+
+    # Write headers to CSV file
+    $csv->print($fh, ["Name", "Email", "Phone", "Subject Keywords", "Body Keywords"]);
+
+    # Write data to CSV file
+    for (my $i = 0; $i < scalar @watchers; $i++) {
+        $csv->print($fh, [$watchers[$i]->{name}, $watchers[$i]->{email}, $watchers[$i]->{subjectKeyword}, $watchers[$i]->{bodyKeyword}]);
+    }
+
+    close $fh;
+}
+
+#write a sub that reads watcher data from a csv file named "watchers.csv"
+sub load_watchers_from_csv {
+
+    my $csv = Text::CSV->new({ binary => 1, auto_diag => 1, eol => "\n" });
+    my $filename = "watchers.csv";
+
+    unless (-e $filename) {
+        warn "\e[31mFile '$filename' does not exist.\e[0m";
+        return;
+    }
+
+    open(my $fh, "<:encoding(utf8)", $filename) or warn "\e[31mCould not open '$filename' for reading: $!\e[0m";
+
+    # Read headers from CSV file
+    my $headers = $csv->getline($fh);
+
+    #clear the arrays
+    @watchers = ();
+
+    #Read data from CSV file
+    while (my $row = $csv->getline($fh)) {
+        my $watcher = {
+            name => $row->[0],
+            email => $row->[1],
+            phone => $row->[2],
+            subjectKeyword => $row->[3],
+            bodyKeyword => $row->[4]
+        };
+        #Print watcher data to console
+        print "-------------------------------------------------\n";
+        print "Watcher Loaded:\n";
+        print "Name: $watcher->{name}\n";
+        print "Email: $watcher->{email}\n";
+        print "Phone: $watcher->{phone}\n";
+        print "Subject Keywords: $watcher->{subjectKeyword}\n";
+        print "Body Keywords: $watcher->{bodyKeyword}\n";
+        push @watchers, $watcher;
+    }
+
+    close $fh;
+
+}
+
 # Initialize arrays
 our (@NavadminMessages, @NavadminSubjects, @NavadminDates, @NavadminUrls);
 our (@AlNavMessages, @AlNavSubjects, @AlNavDates, @AlNavUrls);
 our (@MaradminMessages, @MaradminSubjects, @MaradminDates, @MaradminUrls);
 our (@AlMarMessages, @AlMarSubjects, @AlMarDates, @AlMarUrls);
 
-scanMessages();
+do {
+    scanMessages();
+    print "Sleeping for $scanFrequency minute(s)\n";
+    sleep $scanFrequency * 60;
+} while ($scanActive == 1);
+
+
+sub checkWatchers {
+    my $messageNumber = shift;
+    my $index = findMessageIndex($messageNumber);
+    my $message = $NavadminMessages[$index];
+    my $subject = $NavadminSubjects[$index];
+    my $date = $NavadminDates[$index];
+    my $url = $NavadminUrls[$index];
+    my $body = extractTextFromUrl($url);
+
+    print "Body: $body\n";
+
+    # Remove any escape sequences from the message, subject, and date
+    $message =~ s/\e\[\d+m//g;
+    $message =~ s/á//g;
+    $message =~ s/Â//g;
+    $message =~ s/\s+/ /g;
+
+    $subject =~ s/\e\[\d+m//g;
+    $subject =~ s/á//g;
+    $subject =~ s/Â//g;
+    $subject =~ s/\s+/ /g;
+
+    $date =~ s/\e\[\d+m//g;
+    $date =~ s/á//g;
+    $date =~ s/Â//g;
+    $date =~ s/\s+/ /g;
+
+    my $matched = 0;
+    my $matchedWatcher;
+    #Iterate through each watcher
+    foreach my $watcher (@watchers) {
+        #Check if the subject contains any of the watcher's subject keywords
+        my $subjectKeyword = $watcher->{subjectKeyword};
+        if ($subjectKeyword !~ /^\s*$/ && $subject =~ /$subjectKeyword/i) {
+            $matched = 1;
+            $matchedWatcher = $watcher;
+        }
+        #Check if the body contains the watcher's body keyword in its entirety
+        my $bodyKeyword = $watcher->{bodyKeyword};
+        if ($bodyKeyword !~ /^\s*$/ && $body =~ /\b$bodyKeyword\b/i) {
+            $matched += 2;
+            $matchedWatcher = $watcher;
+        }
+    }
+
+    if ($matched) {
+        my $matchedOn = "";
+        if ($matched == 1) {
+            $matchedOn = "Subject";
+        } elsif ($matched == 2) {
+            $matchedOn = "Body";
+        } elsif ($matched == 3) {
+            $matchedOn = "Subject and Body";
+        }
+
+        #Print Matched Message Information
+        print "-------------------------------------------------\n";
+        print "Watcher: " . $matchedWatcher->{name} . " matched on $matchedOn\n";
+        print "Watcher Email: " . $matchedWatcher->{email} . "\n";
+        print "Watcher Phone: " . $matchedWatcher->{phone} . "\n";
+        print "Watcher Subject Keyword: " . $matchedWatcher->{subjectKeyword} . "\n";
+        print "Watcher Body Keyword: " . $matchedWatcher->{bodyKeyword} . "\n";
+
+                       
+    }
+}
+
+#Write a sub that extracts the text from the provided url page and stores it in a variable called $body
+sub extractTextFromUrl {
+    my $url = shift;
+    my $body = get($url);
+    return $body;
+}
+
 
 sub scanMessages {
+    print "-------------------------------------------------\n";
     # Get the HTML content of the URL
     $html_content = get($NavadminUrl);
 
@@ -61,9 +209,6 @@ sub scanMessages {
 
     #load state from csv file
     load_state_from_csv();
-
-    #load data from csv file
-    #refreshNavadminDataFromCSV();
 
     #load NAVADMIN data from web
     refreshNavadminDataFromWeb();
@@ -109,6 +254,7 @@ sub scanMessages {
 
             print "\e[32m New NAVADMIN found: $message || Subject: $subject || Date: $date || $url\e[0m\n";
             #Trigger other actions here for this new message
+            checkWatchers(messageNumber($message));
         }
 
 
@@ -411,4 +557,9 @@ sub displayNavadminMessages {
         print $index + 1 . ") Message: $message || " . "Subject: " . $NavadminSubjects[$index] . " || Date: " . $NavadminDates[$index] . " || " . $NavadminUrls[$index] . "\n";
         $index++;
     }
+}
+
+END {
+  # perform any necessary cleanup
+  write_watchers_to_csv();
 }
