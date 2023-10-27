@@ -1,1 +1,9 @@
 messageWatcher.pl
+
+.env
+
+email.csv
+
+state.csv
+
+watchers.csv

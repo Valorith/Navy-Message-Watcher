@@ -3,7 +3,7 @@ use warnings;
 use LWP::Simple;
 use HTML::TableExtract;
 use Text::CSV;
-
+use MIME::Lite;
 
 #store the current year in a variable
 my $currentYear = (localtime)[5] + 1900;
@@ -32,10 +32,16 @@ our $AlMarActiveIndex = 0;
 our $lastUpdateDate;
 our $lastUpdateTime;
 
+our $emailUsername;
+our $emailPassword;
+
 our @watchers = (); #Each watcher will have a name, email address, a list of subjects keywords and a list of body keywords
 
 #load watchers from csv file
 load_watchers_from_csv();
+
+#load email credentials from csv file
+load_email_credentials_from_csv();
 
 #write a sub that writes watcher data to a csv file named "watchers.csv" in the root directory
 sub write_watchers_to_csv {
@@ -49,8 +55,8 @@ sub write_watchers_to_csv {
     $csv->print($fh, ["Name", "Email", "Phone", "Subject Keywords", "Body Keywords"]);
 
     # Write data to CSV file
-    for (my $i = 0; $i < scalar @watchers; $i++) {
-        $csv->print($fh, [$watchers[$i]->{name}, $watchers[$i]->{email}, $watchers[$i]->{subjectKeyword}, $watchers[$i]->{bodyKeyword}]);
+    foreach my $watcher (@watchers) {
+        $csv->print($fh, [$watcher->{name}, $watcher->{email}, $watcher->{phone}, $watcher->{subjectKeyword}, $watcher->{bodyKeyword}]);
     }
 
     close $fh;
@@ -87,16 +93,13 @@ sub load_watchers_from_csv {
         #Print watcher data to console
         print "-------------------------------------------------\n";
         print "Watcher Loaded:\n";
-        print "Name: $watcher->{name}\n";
-        print "Email: $watcher->{email}\n";
-        print "Phone: $watcher->{phone}\n";
-        print "Subject Keywords: $watcher->{subjectKeyword}\n";
-        print "Body Keywords: $watcher->{bodyKeyword}\n";
+        print "Name: " . $watcher->{name} . "\n";
+        print "Email: " . $watcher->{email} . "\n";
+        print "Phone: " . $watcher->{phone} . "\n";
+        print "Subject Keyword: " . $watcher->{subjectKeyword} . "\n";
+        print "Body Keyword: " . $watcher->{bodyKeyword} . "\n";
         push @watchers, $watcher;
     }
-
-    close $fh;
-
 }
 
 # Initialize arrays
@@ -121,7 +124,10 @@ sub checkWatchers {
     my $url = $NavadminUrls[$index];
     my $body = extractTextFromUrl($url);
 
-    print "Body: $body\n";
+    print "Checking watchers for message number $messageNumber...\n";
+    print "There are " . scalar @watchers . " total watchers\n";
+
+    #print "Body: $body\n";
 
     # Remove any escape sequences from the message, subject, and date
     $message =~ s/\e\[\d+m//g;
@@ -144,16 +150,23 @@ sub checkWatchers {
     #Iterate through each watcher
     foreach my $watcher (@watchers) {
         #Check if the subject contains any of the watcher's subject keywords
-        my $subjectKeyword = $watcher->{subjectKeyword};
+        my $subjectKeyword = $watcher->{subjectKeyword} || "";
         if ($subjectKeyword !~ /^\s*$/ && $subject =~ /$subjectKeyword/i) {
             $matched = 1;
             $matchedWatcher = $watcher;
+            print "Subject matched ($subjectKeyword) for watcher " . $watcher->{name} . "\n";
+        }
+        else {
+            print "Subject did not match ($subjectKeyword) for watcher " . $watcher->{name} . "\n";
         }
         #Check if the body contains the watcher's body keyword in its entirety
-        my $bodyKeyword = $watcher->{bodyKeyword};
+        my $bodyKeyword = $watcher->{bodyKeyword} || "";
         if ($bodyKeyword !~ /^\s*$/ && $body =~ /\b$bodyKeyword\b/i) {
             $matched += 2;
             $matchedWatcher = $watcher;
+            print "Body matched ($bodyKeyword) for watcher " . $watcher->{name} . "\n";
+        } else {
+            print "Body did not match ($bodyKeyword) for watcher " . $watcher->{name} . "\n";
         }
     }
 
@@ -175,7 +188,12 @@ sub checkWatchers {
         print "Watcher Subject Keyword: " . $matchedWatcher->{subjectKeyword} . "\n";
         print "Watcher Body Keyword: " . $matchedWatcher->{bodyKeyword} . "\n";
 
-                       
+        my $openingStatement = "You are receiving this message because you have an active message watcher and it matched on the following criteria: $matchedOn\n\nThe following keywords were used: \nSubject Keyword: " . $matchedWatcher->{subjectKeyword} . "\nBody Keyword: " . $matchedWatcher->{bodyKeyword} . "\nThe following message was found:\n\n";
+
+        my $finalMessage = $openingStatement . $body;
+
+        emailNotification($matchedWatcher->{email}, "", 'noreply@navadminwatcher.com', "New NAVADMIN Message Found", $finalMessage);
+
     }
 }
 
@@ -184,6 +202,37 @@ sub extractTextFromUrl {
     my $url = shift;
     my $body = get($url);
     return $body;
+}
+
+sub emailNotification {
+
+    if (not $emailUsername or not $emailPassword) {
+        print "Email credentials not found. Please load email credentials from csv file.\n";
+        return;
+    }
+    
+    my $to = shift;
+    my $cc = shift;
+    my $from = shift;
+    my $subject = shift;
+    my $message = shift;
+
+
+    my $msg = MIME::Lite->new(
+    From     => $from,
+    To       => $to,
+    Cc       => $cc,
+    Subject  => $subject,
+    Type     => 'multipart/mixed'
+    );
+
+    # Add your text message.
+    $msg->attach(Type => 'text', Data => $message);
+
+
+    # config
+    $msg->send('smtp', "live.smtp.mailtrap.io", Port=>587, Hello=>"live.smtp.mailtrap.io", AuthUser=>"api", AuthPass=>$emailPassword );
+    print "Email Sent Successfully\n";
 }
 
 
@@ -251,7 +300,7 @@ sub scanMessages {
             $date =~ s/á//g;
             $date =~ s/Â//g;
             $date =~ s/\s+/ /g;
-
+            print "-------------------------------------------------\n";
             print "\e[32m New NAVADMIN found: $message || Subject: $subject || Date: $date || $url\e[0m\n";
             #Trigger other actions here for this new message
             checkWatchers(messageNumber($message));
@@ -259,6 +308,7 @@ sub scanMessages {
 
 
     } else {
+        print "-------------------------------------------------\n";
         print "\e[32mThere are no new NAVADMIN messages!\e[0m\n";
         print "Old highest message index: $NavadminActiveIndex\n";
         print "New highest message index: $newHighestMessageNumber\n";
@@ -396,6 +446,34 @@ sub load_state_from_csv {
     close $fh;
 
 }
+
+#write a sub that loads email credentials (username and password) from a csv file named "email.csv"
+sub load_email_credentials_from_csv {
+    print "-------------------------------------------------\n";
+    my $csv = Text::CSV->new({ binary => 1, auto_diag => 1, eol => "\n" });
+    my $filename = "email.csv";
+
+    unless (-e $filename) {
+        warn "\e[31mFile '$filename' does not exist.\e[0m";
+        return;
+    }
+
+    open(my $fh, "<:encoding(utf8)", $filename) or warn "\e[31mCould not open '$filename' for reading: $!\e[0m";
+
+    # Read headers from CSV file
+    my $headers = $csv->getline($fh);
+
+    #Read data from CSV file
+    my $row = $csv->getline($fh);
+    $emailUsername = $row->[0];
+    print "Email Username loaded...\n";
+    $emailPassword = $row->[1];
+    print "Email Password loaded...\n";
+  
+    close $fh;
+
+}
+
 
 #Extract the number before the forward slash in this example "252/23"
 sub messageNumber {
