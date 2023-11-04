@@ -7,3 +7,5 @@ email.csv
 state.csv
 
 watchers.csv
+
+*.code-workspace
