@@ -9,3 +9,7 @@ state.csv
 watchers.csv
 
 *.code-workspace
+
+log.txt
+
+data.csv
