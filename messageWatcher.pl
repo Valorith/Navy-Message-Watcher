@@ -402,6 +402,11 @@ sub checkWatchers {
 
 sub writeLog {
     my $message = shift;
+    #append the date and time on the front of the message in the following format: [MM/DD/YYYY HH:MM:SS]
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+    my $date = sprintf("%02d/%02d/%04d", $mon+1, $mday, $year+1900);
+    my $time = sprintf("%02d:%02d:%02d", $hour, $min, $sec);
+    $message = "[$date $time] " . $message;
     my $logFile = "log.txt";
     open(my $fh, '>>', $logFile) or die "Could not open file '$logFile' $!";
     print $fh $message . "\n";
