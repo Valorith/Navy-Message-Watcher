@@ -13,3 +13,7 @@ watchers.csv
 log.txt
 
 data.csv
+
+log_old
+
+creds.csv

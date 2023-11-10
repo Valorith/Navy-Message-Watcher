@@ -7,6 +7,7 @@ use Email::Sender::Simple qw(sendmail);
 use Email::Sender::Transport::SMTP;
 use Email::MIME;
 use Term::ReadKey;
+use SMS::Send;
 
 #store the current year in a variable
 my $currentYear = (localtime)[5] + 1900;
@@ -35,6 +36,8 @@ our $initialLoad = 1;
 
 our $emailUsername;
 our $emailPassword;
+our $smsUsername;
+our $smsPassword;
 
 our @watchers = (); #Each watcher will have a name, email address, a list of subjects keywords and a list of body keywords
 
@@ -42,7 +45,10 @@ our @watchers = (); #Each watcher will have a name, email address, a list of sub
 load_watchers_from_csv();
 
 #load email credentials from csv file
-load_email_credentials_from_csv();
+load_credentials_from_csv();
+
+#check log file size
+checkLogFileSize();
 
 # Initialize arrays
 our (@NavadminMessages, @NavadminSubjects, @NavadminDates, @NavadminUrls);
@@ -51,7 +57,7 @@ our (@MaradminMessages, @MaradminSubjects, @MaradminDates, @MaradminUrls);
 our (@AlMarMessages, @AlMarSubjects, @AlMarDates, @AlMarUrls);
 
 
-$scanActive = 1;
+$scanActive = 0;
 initiateScan();
 
 while (1) {
@@ -61,7 +67,7 @@ while (1) {
     my $input = <>;
     chomp $input;
     $input = lc $input; # convert input to lowercase
-
+    writeLog("Command Recieved: $input");
     if ($input eq 'exit') {
         last;
     } elsif ($input eq 'scan') {
@@ -69,6 +75,9 @@ while (1) {
     } elsif ($input =~ /^test email (\S+@\S+)$/) {
         my $email = $1;
         testEmail($email);
+    } elsif ($input =~ /^test sms (\S+)$/i) {
+        my $sms = $1;
+        testSMS($sms);
     } elsif ($input eq 'scanactive on') {
         $scanActive = 1;
         initiateScan();
@@ -83,7 +92,8 @@ sub display_menu {
     print "1) Type 'exit' to close the program.\n";
     print "2) Type 'scan' to initiate scan.\n";
     print "3) Type 'test email [email]' to send a test email. Example: " . 'test email test@aol.com' . "\n";
-    print "4) Type 'scanactive on/off' to turn active scanning on/off.\n";
+    print "4) Type 'test sms [phone]' to send a test sms. Example: " . 'test sms 1234567890' . "\n";
+    print "5) Type 'scanactive on/off' to turn active scanning on/off.\n";
     print "-------------------------------------------------\n";
     
     writeLog("-------------------------------------------------");
@@ -145,6 +155,97 @@ sub testEmail {
     print "Email Sent Successfully\n";
     writeLog("Email Sent Successfully");
 
+}
+
+#Sub to check if the log file is more than 1MB in size.  If it is, rename it to log.txt.old (with incrementing numbers on the end of the file name) and create a new log.txt file. Use a subdirectory called logs to store the log files. If the subdirectory doesnt exist, create it.
+sub checkLogFileSize {
+    my $logFile = "log.txt";
+    my $logDirectory = "logs";
+    my $logFilePath = $logDirectory . '/' . $logFile;
+    # 1 MB max size
+    my $logFileMaxSize = 1000000;
+    my $logFileMaxSizeMB = $logFileMaxSize / 1000000; #1MB
+    
+    #check if the logs directory exists
+    if (-d $logDirectory) {
+        #check if the log file exists
+        if (-e $logFilePath) {
+            #check if the log file is larger than 1MB
+            my $currentLogFileSize = -s $logFilePath;
+            my $currentLogFileSizeMB = sprintf("%.2f", $currentLogFileSize / 1000000);
+            if ($currentLogFileSize > $logFileMaxSize) {
+                writeLog("Log file ($logFile, Size: $currentLogFileSizeMB MB) is larger than $logFileMaxSizeMB MB. Archiving log file...");
+                # Define the base name for the old log files
+                my $baseOldLogFileName = "logs/log_old";
+                my $i = 0;
+
+                # Construct the new log file name
+                my $newLogFileName = $baseOldLogFileName . ($i > 0 ? $i : "");
+
+                # Check if a file with the new name already exists
+                while (-e $newLogFileName . ".txt") {
+                    $i++;
+                    $newLogFileName = $baseOldLogFileName . $i;
+                }
+
+                # Rename the current log file
+                rename "logs/log.txt", $newLogFileName . ".txt";
+                print "Log file renamed to $newLogFileName.txt\n";
+
+                # Create a new log file in the logs subdirectory
+                my $newLogFile = "logs/log.txt";
+                open(my $fh, '>', $newLogFile) or die "Could not open file '$newLogFile' $!";
+                close $fh;
+                print "New log file $newLogFile created\n";
+            } else {
+                writeLog("Log file ($logFile, Size: $currentLogFileSizeMB MB) is smaller than $logFileMaxSizeMB MB. No action required.");
+                print "Log file ($logFile, Size: $currentLogFileSizeMB MB) is smaller than $logFileMaxSizeMB MB. No action required.\n";
+            }
+        } else {
+            #create a new log file
+            open(my $fh, '>', $logFilePath) or die "Could not open file '$logFile' $!";
+            close $fh;
+            writeLog("Log file $logFile created");
+            print "Log file $logFile created\n";
+        }
+    } else {
+        #create the logs directory
+        mkdir $logDirectory;
+        writeLog("Logs directory $logDirectory created");
+        print "Logs directory $logDirectory created\n";
+        # create a new log file in the new directory
+        open(my $fh, '>', $logFilePath) or die "Could not open file '$logFilePath' $!";
+        close $fh;
+        writeLog("Log file $logFilePath created in new logs directory");
+        print "Log file $logFilePath created in new logs directory\n";
+    }
+}
+
+sub testSMS {
+    my $to = shift;
+    my $message = "This is a test SMS message from the NAVADMIN Watcher application.  If you received this SMS, it means SMS notifications are working properly.";
+
+    # Create an object. There are three required values:
+    my $sender = SMS::Send->new('Twilio',
+    _accountsid => $smsUsername,
+    _authtoken  => $smsPassword,
+    _from       => '+18339393114',
+    );
+    
+    # Send a message to me
+    my $sent = $sender->send_sms(
+        text => $message,
+        to => $to,
+    );
+    
+    if ($sent) {
+        print "SMS Sent Successfully\n";
+        writeLog("SMS Sent Successfully");
+    } else {
+        print "SMS Failed to Send\n";
+        writeLog("SMS Failed to Send");
+    }
+    
 }
 
 #write a sub that converts minutes into days, hours, and minutes
@@ -341,6 +442,7 @@ sub checkWatchers {
         my $matchedWatcher;
         #Check if the subject contains any of the watcher's subject keywords
         my $subjectKeyword = $watcher->{subjectKeyword} || "";
+        #Check to ensure the keyword is not empty and that is is found in the subject
         if ($subjectKeyword !~ /^\s*$/ && $subject =~ /$subjectKeyword/i) {
             $matched = 1;
             $matchedWatcher = $watcher;
@@ -446,7 +548,23 @@ sub writeLog {
     my $date = sprintf("%02d/%02d/%04d", $mon+1, $mday, $year+1900);
     my $time = sprintf("%02d:%02d:%02d", $hour, $min, $sec);
     $message = "[$date $time] " . $message;
-    my $logFile = "log.txt";
+    my $logDirectory = "logs";
+    my $logFile = $logDirectory . "/log.txt";
+    
+    #check if the logs directory exists
+    if (!-d $logDirectory) {
+        #create the logs directory
+        mkdir $logDirectory or die "Could not create directory '$logDirectory' $!";
+    }
+    
+    #check if the log file exists
+    if (!-e $logFile) {
+        #create a new log file
+        open(my $fh, '>', $logFile) or die "Could not open file '$logFile' $!";
+        close $fh;
+    }
+    
+    #write the log message to the log file
     open(my $fh, '>>', $logFile) or die "Could not open file '$logFile' $!";
     print $fh $message . "\n";
     close $fh;
@@ -509,6 +627,31 @@ sub emailNotification {
     sendmail($msg, { transport => $transport });
     print "Email Sent Successfully\n";
     writeLog("Email Sent Successfully");
+}
+
+sub smsNotification {
+    my $to = shift;
+    my $message = shift;
+
+    my $sender = SMS::Send->new('Twilio',
+        _accountsid => $smsUsername,
+        _token => $smsPassword,
+    );
+
+    my $sent = $sender->send_sms(
+        text => $message,
+        to => $to,
+        from => '+18339393114',
+    );
+
+    if ($sent) {
+        print "SMS Sent Successfully\n";
+        writeLog("SMS Sent Successfully");
+    } else {
+        print "SMS Failed to Send\n";
+        writeLog("SMS Failed to Send");
+    }
+
 }
 
 
@@ -791,13 +934,13 @@ sub load_state_from_csv {
     writeLog("Application state loaded from csv file successfully");
 }
 
-#write a sub that loads email credentials (username and password) from a csv file named "email.csv"
-sub load_email_credentials_from_csv {
+#write a sub that loads email credentials (username and password) from a csv file named "creds.csv"
+sub load_credentials_from_csv {
     writeLog("Loading email credentials from csv file...");
     print "-------------------------------------------------\n";
     writeLog("-------------------------------------------------");
     my $csv = Text::CSV->new({ binary => 1, auto_diag => 1, eol => "\n" });
-    my $filename = "email.csv";
+    my $filename = "creds.csv";
 
     unless (-e $filename) {
         warn "\e[31mFile '$filename' does not exist.\e[0m";
@@ -813,12 +956,21 @@ sub load_email_credentials_from_csv {
     my $row = $csv->getline($fh);
     $emailUsername = $row->[0];
     print "Email Username loaded...\n";
+    writeLog("Email Username loaded...");
     $emailPassword = $row->[1];
     print "Email Password loaded...\n";
-
-    writeLog("Email Username loaded...");
     writeLog("Email Password loaded...");
-  
+
+    #Read new line from CSV file
+    $row = $csv->getline($fh);
+
+    $smsUsername = $row->[0];
+    print "SMS Username loaded...\n";
+    writeLog("SMS Username loaded...");
+    $smsPassword = $row->[1];
+    print "SMS Password loaded...\n";
+    writeLog("SMS Password loaded..."); 
+    
     close $fh;
     writeLog("Email credentials loaded from csv file successfully");
 }
