@@ -57,7 +57,7 @@ our (@MaradminMessages, @MaradminSubjects, @MaradminDates, @MaradminUrls);
 our (@AlMarMessages, @AlMarSubjects, @AlMarDates, @AlMarUrls);
 
 
-$scanActive = 0;
+$scanActive = 1;
 initiateScan();
 
 while (1) {
