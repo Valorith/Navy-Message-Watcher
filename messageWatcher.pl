@@ -23,9 +23,6 @@ our $AlMarUrl = "$baseUsmcUrl/News/Messages/Category/14335/Year/$currentYear/";
 our $scanFrequency = 10; #in minutes
 our $scanActive = 1; #1 = active, 0 = inactive
 
-our $html_content;
-our $table;
-
 # Initialize the active message index
 our $NavadminActiveIndex = 0;
 our $AlNavActiveIndex = 0;
@@ -54,7 +51,7 @@ our (@MaradminMessages, @MaradminSubjects, @MaradminDates, @MaradminUrls);
 our (@AlMarMessages, @AlMarSubjects, @AlMarDates, @AlMarUrls);
 
 
-$scanActive = 1;
+$scanActive = 0;
 initiateScan();
 
 while (1) {
@@ -260,19 +257,61 @@ sub load_watchers_from_csv {
 
 
 sub checkWatchers {
+    my $messageType = shift;
     my $messageNumber = shift;
-    writeLog("Checking watchers for message number $messageNumber...");
-    my $index = findMessageIndex($messageNumber);
-    my $message = $NavadminMessages[$index];
-    my $subject = $NavadminSubjects[$index];
-    my $date = $NavadminDates[$index];
-    my $url = $NavadminUrls[$index];
+    my $messageTypeName;
+
+    if ($messageType == 1) {
+        $messageTypeName = "NAVADMIN";
+    } elsif ($messageType == 2) {
+        $messageTypeName = "ALNAV";
+    } elsif ($messageType == 3) {
+        $messageTypeName = "MARADMIN";
+    } elsif ($messageType == 4) {
+        $messageTypeName = "ALMAR";
+    }
+
+    writeLog("Checking watchers for $messageTypeName message number $messageNumber...");
+    my $index = findMessageIndex($messageType, $messageNumber);
+
+
+    my $message;
+    my $subject;
+    my $date;
+    my $url;
+
+    if ($messageType == 1) {
+        $message = $NavadminMessages[$index];
+        $subject = $NavadminSubjects[$index];
+        $date = $NavadminDates[$index];
+        $url = $NavadminUrls[$index];
+    } elsif ($messageType == 2) {
+        $message = $AlNavMessages[$index];
+        $subject = $AlNavSubjects[$index];
+        $date = $AlNavDates[$index];
+        $url = $AlNavUrls[$index];
+    } elsif ($messageType == 3) {
+        $message = $MaradminMessages[$index];
+        $subject = $MaradminSubjects[$index];
+        $date = $MaradminDates[$index];
+        $url = $MaradminUrls[$index];
+    } elsif ($messageType == 4) {
+        $message = $AlMarMessages[$index];
+        $subject = $AlMarSubjects[$index];
+        $date = $AlMarDates[$index];
+        $url = $AlMarUrls[$index];
+    } else {
+        print "Invalid message type: $messageType\n";
+        writeLog("Invalid message type: $messageType");
+        return;
+    }
+    
     my $body = extractTextFromUrl($url);
 
-    print "Checking watchers for message number $messageNumber...\n";
+    print "Checking watchers for $messageTypeName message number $messageNumber...\n";
     print "There are " . scalar @watchers . " total watchers\n";
 
-    writeLog("Checking watchers for message number $messageNumber...");
+    writeLog("Checking watchers for $messageTypeName message number $messageNumber...");
     writeLog("There are " . scalar @watchers . " total watchers");
 
     #print "Body: $body\n";
@@ -381,7 +420,7 @@ sub checkWatchers {
                 push @notificationEmails, $selectedEmailAddress;
                 push @notificationIndexes, $messageNumber;
                 if ($selectedEmailAddress and $selectedEmailAddress ne "") {
-                    emailNotification($selectedEmailAddress, 'rgagnier06@gmail.com', 'noreply@navadminwatcher.com', "New NAVADMIN Message Found", $finalMessage);
+                    emailNotification($selectedEmailAddress, 'rgagnier06@gmail.com', 'noreply@navadminwatcher.com', "New $messageTypeName Message Found", $finalMessage);
                 } else {
                     print "No email address found for watcher " . $matchedWatcher->{name} . "\n";
                     writeLog("No email address found for watcher " . $matchedWatcher->{name});
@@ -477,18 +516,7 @@ sub scanMessages {
     writeLog("Scanning for new messages...");
     print "-------------------------------------------------\n";
     writeLog("-------------------------------------------------");
-    # Get the HTML content of the URL
-    $html_content = get($NavadminUrl);
-
-    # Create a new HTML::TableExtract object
-    my $te = HTML::TableExtract->new( headers => [qw(Message Subject Date)] );
-
-    # Parse the HTML content and extract the table data
-    $te->parse($html_content);
-
-    # Get the first table found
-    $table = $te->first_table_found;
-
+    
     #clear all arrays
     @NavadminMessages = @NavadminSubjects = @NavadminDates = @NavadminUrls = ();
     @AlNavMessages = @AlNavSubjects = @AlNavDates = @AlNavUrls = ();
@@ -500,6 +528,9 @@ sub scanMessages {
 
     #load NAVADMIN data from web
     refreshNavadminDataFromWeb();
+
+    #load ALNAV data from web
+    refreshAlnavDataFromWeb();
 
     refreshUpdateDateTime();
 
@@ -522,7 +553,7 @@ sub scanMessages {
                 next;
             }
 
-            my $index = findMessageIndex($currentMessageNumber);
+            my $index = findMessageIndex(1, $currentMessageNumber);
             
             my $subject = $NavadminSubjects[$index];
             my $date = $NavadminDates[$index];
@@ -549,7 +580,7 @@ sub scanMessages {
             writeLog("-------------------------------------------------");
             writeLog("New NAVADMIN found: $message || Subject: $subject || Date: $date || $url");
             #Trigger other actions here for this new message
-            checkWatchers(messageNumber($message));
+            checkWatchers(1, messageNumber($message));
         }
 
 
@@ -562,6 +593,66 @@ sub scanMessages {
         writeLog("-------------------------------------------------");
         writeLog("There are no new NAVADMIN messages!");
         writeLog("Old highest message index: $NavadminActiveIndex");
+        writeLog("New highest message index: $newHighestMessageNumber");
+    }
+
+    $newHighestMessageNumber = highestMessageNumber(2);
+    if ($newHighestMessageNumber > $AlNavActiveIndex) {
+        #print statement showing there are new messages in red
+        print "\e[31mThere are new ALNAV messages.\e[0m\n";
+        print "Old highest ALNAV message index: $AlNavActiveIndex\n";
+        print "New highest ALNAV message index: $newHighestMessageNumber\n";
+
+        writeLog("There are new ALNAV messages.");
+        writeLog("Old highest ALNAV message index: $AlNavActiveIndex");
+        writeLog("New highest ALNAV message index: $newHighestMessageNumber");
+
+        #Iterate through each of the new messages and print them in green
+        foreach my $message (@AlNavMessages) {
+            my $currentMessageNumber = messageNumber($message);
+            if ($currentMessageNumber <= $AlNavActiveIndex) {
+                next;
+            }
+
+            my $index = findMessageIndex(2, $currentMessageNumber);
+            
+            my $subject = $AlNavSubjects[$index];
+            my $date = $AlNavDates[$index];
+            my $url = $AlNavUrls[$index];
+
+            # Remove any escape sequences from the message, subject, and date
+            $message =~ s/\e\[\d+m//g;
+            $message =~ s/á//g;
+            $message =~ s/Â//g;
+            $message =~ s/\s+/ /g;
+
+            $subject =~ s/\e\[\d+m//g;
+            $subject =~ s/á//g;
+            $subject =~ s/Â//g;
+            $subject =~ s/\s+/ /g;
+
+            $date =~ s/\e\[\d+m//g;
+            $date =~ s/á//g;
+            $date =~ s/Â//g;
+            $date =~ s/\s+/ /g;
+            print "-------------------------------------------------\n";
+            print "\e[32m New ALNAV found: $message || Subject: $subject || Date: $date || $url\e[0m\n";
+
+            writeLog("-------------------------------------------------");
+            writeLog("New ALNAV found: $message || Subject: $subject || Date: $date || $url");
+            #Trigger other actions here for this new message
+            checkWatchers(2, messageNumber($message));
+        } 
+
+    } else {
+        print "-------------------------------------------------\n";
+        print "\e[32mThere are no new ALNAV messages!\e[0m\n";
+        print "Old highest message index: $AlNavActiveIndex\n";
+        print "New highest message index: $newHighestMessageNumber\n";
+
+        writeLog("-------------------------------------------------");
+        writeLog("There are no new ALNAV messages!");
+        writeLog("Old highest message index: $AlNavActiveIndex");
         writeLog("New highest message index: $newHighestMessageNumber");
     }
 
@@ -587,7 +678,7 @@ sub scanMessages {
     write_to_csv();
 
     writeLog("Finished scanning for new messages");
-}
+} 
 
 sub write_to_csv {
     writeLog("Writing NAVADMIN data to csv file...");
@@ -735,13 +826,12 @@ sub load_email_credentials_from_csv {
 
 #Extract the number before the forward slash in this example "252/23"
 sub messageNumber {
+    my $originalMessageNumber = shift;
+    my $index = index($originalMessageNumber, "/");
+    my $cleanMessageNumber = substr($originalMessageNumber, 0, $index);
 
-    my $originalNavadminNumber = shift;
-    my $index = index($originalNavadminNumber, "/");
-    my $navadminNumber = substr($originalNavadminNumber, 0, $index);
-
-    return $navadminNumber;
-    writeLog("Message number ($navadminNumber) extracted successfully from $originalNavadminNumber");
+    return $cleanMessageNumber;
+    writeLog("Message number ($cleanMessageNumber) extracted successfully from $originalMessageNumber");
 }
 
 sub refreshUpdateDateTime {
@@ -809,13 +899,27 @@ sub highestMessageNumber {
         writeLog("Highest ALMAR message number retrieved successfully: $highestMessageNumber");
         return $highestMessageNumber;
     } else {
-        print "Invalid message type\n";
-        writeLog("Invalid message type");
+        print "Invalid message type ($messageType)\n";
+        writeLog("Invalid message type ($messageType)");
     }
 }
 
 sub refreshNavadminDataFromWeb {
     writeLog("Refreshing NAVADMIN data from web...");
+
+    # Get the HTML content of the URL
+    my $html_content = get($NavadminUrl);
+
+    # Create a new HTML::TableExtract object
+    my $te = HTML::TableExtract->new( headers => [qw(Message Subject Date)] );
+
+    # Parse the HTML content and extract the table data
+    $te->parse($html_content);
+
+    # Get the first table found
+    my $table = $te->first_table_found;
+
+
     # Remove any instances of "á" in the table
     $table =~ s/á//g;
 
@@ -859,12 +963,83 @@ sub refreshNavadminDataFromWeb {
     writeLog("NAVADMIN data refreshed from web successfully");
 }
 
+sub refreshAlnavDataFromWeb {
+    writeLog("Refreshing ALNAV data from web...");
+
+    # Get the HTML content of the URL
+    my $html_content = get($AlNavUrl);
+
+    # Create a new HTML::TableExtract object
+    my $te = HTML::TableExtract->new( headers => [qw(Message Subject Date)] );
+
+    # Parse the HTML content and extract the table data
+    $te->parse($html_content);
+
+    # Get the first table found
+    my $table = $te->first_table_found;
+
+    # Remove any instances of "á" in the table
+    $table =~ s/á//g;
+
+    # Ensure there are no more than 1 space between words
+    $table =~ s/\s+/ /g;
+
+    #Remove any new lines in the table
+    $table =~ s/\n//g;
+
+    #Clear the arrays
+    @AlNavMessages = ();
+    @AlNavSubjects = ();
+    @AlNavDates = ();
+    @AlNavUrls = ();
+
+    # Loop through each row of the table and store the data in the arrays
+    foreach my $row ($table->rows) {
+        push @AlNavMessages, $row->[0];
+        push @AlNavSubjects, $row->[1];
+        push @AlNavDates, $row->[2];
+    }
+    # Extract all hrefs that include "/Portals/55/Messages/ALNAV/ALN$currentYear" in the URL
+    @AlNavUrls = $html_content =~ /href="(.*?\/Portals\/55\/Messages\/ALNAV\/ALN$currentYear.*?)"/g;
+    
+    #append each @url value with $baseNavyUrl
+    foreach my $AlNavUrl (@AlNavUrls) {
+        $AlNavUrl = $baseNavyUrl . $AlNavUrl;
+    }
+
+    #Reverse the order of the arrays
+    @AlNavMessages = reverse @AlNavMessages;
+    @AlNavSubjects = reverse @AlNavSubjects;
+    @AlNavDates = reverse @AlNavDates;
+    @AlNavUrls = reverse @AlNavUrls;
+
+    #Print a debug statement showing the number of messages found
+    print "Found " . scalar @AlNavMessages . " total ALNAV messages\n";
+    writeLog("Found " . scalar @AlNavMessages . " total ALNAV messages");
+
+    writeLog("ALNAV data refreshed from web successfully");
+}
+
 #Write a sub that is provided the message number and returns the index of the array that contains the message
 sub findMessageIndex {
+    my $messageType = shift;
     my $messageNumber = shift;
     my $index = 0;
+    my @targetArray;
+    if ($messageType == 1) { #NAVADMIN
+        @targetArray = @NavadminMessages;
+    } elsif ($messageType == 2) { #ALNAV
+        @targetArray = @AlNavMessages;
+    } elsif ($messageType == 3) { #MARADMIN
+        @targetArray = @MaradminMessages;
+    } elsif ($messageType == 4) { #ALMAR
+        @targetArray = @AlMarMessages;
+    } else {
+        print "Invalid message type: $messageType\n";
+        writeLog("Invalid message type: $messageType");
+    }
 
-    foreach my $message (@NavadminMessages) {
+    foreach my $message (@targetArray) {
         if (messageNumber($message) == $messageNumber) {
             return $index;
         }
