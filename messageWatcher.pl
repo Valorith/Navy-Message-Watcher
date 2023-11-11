@@ -47,9 +47,6 @@ load_watchers_from_csv();
 #load email credentials from csv file
 load_credentials_from_csv();
 
-#check log file size
-checkLogFileSize();
-
 # Initialize arrays
 our (@NavadminMessages, @NavadminSubjects, @NavadminDates, @NavadminUrls);
 our (@AlNavMessages, @AlNavSubjects, @AlNavDates, @AlNavUrls);
@@ -656,6 +653,9 @@ sub smsNotification {
 
 
 sub scanMessages {
+    #check log file size
+    checkLogFileSize();
+
     writeLog("Scanning for new messages...");
     print "-------------------------------------------------\n";
     writeLog("-------------------------------------------------");
