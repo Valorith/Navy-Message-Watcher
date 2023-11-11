@@ -78,6 +78,9 @@ while (1) {
     } elsif ($input eq 'scanactive on') {
         $scanActive = 1;
         initiateScan();
+    } elsif ($input eq 'start') {
+        $scanActive = 1;
+        initiateScan();
     } elsif ($input eq 'scanactive off') {
         $scanActive = 0;
     }
@@ -355,187 +358,215 @@ sub load_watchers_from_csv {
 
 
 sub checkWatchers {
-    my $messageType = shift;
-    my $messageNumber = shift;
-    my $messageTypeName;
+my $messageType = shift;
+my $messageNumber = shift;
+my $messageTypeName;
 
-    if ($messageType == 1) {
-        $messageTypeName = "NAVADMIN";
-    } elsif ($messageType == 2) {
-        $messageTypeName = "ALNAV";
-    } elsif ($messageType == 3) {
-        $messageTypeName = "MARADMIN";
-    } elsif ($messageType == 4) {
-        $messageTypeName = "ALMAR";
+if ($messageType == 1) {
+    $messageTypeName = "NAVADMIN";
+} elsif ($messageType == 2) {
+    $messageTypeName = "ALNAV";
+} elsif ($messageType == 3) {
+    $messageTypeName = "MARADMIN";
+} elsif ($messageType == 4) {
+    $messageTypeName = "ALMAR";
+}
+
+writeLog("Checking watchers for $messageTypeName message number $messageNumber...");
+my $index = findMessageIndex($messageType, $messageNumber);
+
+
+my $message;
+my $subject;
+my $date;
+my $url;
+
+if ($messageType == 1) {
+    $message = $NavadminMessages[$index];
+    $subject = $NavadminSubjects[$index];
+    $date = $NavadminDates[$index];
+    $url = $NavadminUrls[$index];
+} elsif ($messageType == 2) {
+    $message = $AlNavMessages[$index];
+    $subject = $AlNavSubjects[$index];
+    $date = $AlNavDates[$index];
+    $url = $AlNavUrls[$index];
+} elsif ($messageType == 3) {
+    $message = $MaradminMessages[$index];
+    $subject = $MaradminSubjects[$index];
+    $date = $MaradminDates[$index];
+    $url = $MaradminUrls[$index];
+} elsif ($messageType == 4) {
+    $message = $AlMarMessages[$index];
+    $subject = $AlMarSubjects[$index];
+    $date = $AlMarDates[$index];
+    $url = $AlMarUrls[$index];
+} else {
+    print "Invalid message type: $messageType\n";
+    writeLog("Invalid message type: $messageType");
+    return;
+}
+
+my $body = extractTextFromUrl($url);
+
+print "Checking watchers for $messageTypeName message number $messageNumber...\n";
+print "There are " . scalar @watchers . " total watchers\n";
+
+writeLog("Checking watchers for $messageTypeName message number $messageNumber...");
+writeLog("There are " . scalar @watchers . " total watchers");
+
+#print "Body: $body\n";
+
+# Remove any escape sequences from the message, subject, and date
+$message =~ s/\e\[\d+m//g;
+$message =~ s/á//g;
+$message =~ s/Â//g;
+$message =~ s/\s+/ /g;
+
+$subject =~ s/\e\[\d+m//g;
+$subject =~ s/á//g;
+$subject =~ s/Â//g;
+$subject =~ s/\s+/ /g;
+
+$date =~ s/\e\[\d+m//g;
+$date =~ s/á//g;
+$date =~ s/Â//g;
+$date =~ s/\s+/ /g;
+
+our @notificationEmails = ();
+our @notificationIndexes = ();
+
+#Iterate through each watcher
+foreach my $watcher (@watchers) {
+    my $matched = 0;
+    my $matchedWatcher;
+    #Check if the subject contains any of the watcher's subject keywords
+    my $subjectKeyword = $watcher->{subjectKeyword} || "";
+    #Check to ensure the keyword is not empty and that is is found in the subject
+    if ($subjectKeyword !~ /^\s*$/ && $subject =~ /$subjectKeyword/i) {
+        $matched = 1;
+        $matchedWatcher = $watcher;
+        print "Subject matched ($subjectKeyword) for watcher " . $watcher->{name} . "\n";
+        writeLog("Subject matched ($subjectKeyword) for watcher " . $watcher->{name});
     }
-
-    writeLog("Checking watchers for $messageTypeName message number $messageNumber...");
-    my $index = findMessageIndex($messageType, $messageNumber);
-
-
-    my $message;
-    my $subject;
-    my $date;
-    my $url;
-
-    if ($messageType == 1) {
-        $message = $NavadminMessages[$index];
-        $subject = $NavadminSubjects[$index];
-        $date = $NavadminDates[$index];
-        $url = $NavadminUrls[$index];
-    } elsif ($messageType == 2) {
-        $message = $AlNavMessages[$index];
-        $subject = $AlNavSubjects[$index];
-        $date = $AlNavDates[$index];
-        $url = $AlNavUrls[$index];
-    } elsif ($messageType == 3) {
-        $message = $MaradminMessages[$index];
-        $subject = $MaradminSubjects[$index];
-        $date = $MaradminDates[$index];
-        $url = $MaradminUrls[$index];
-    } elsif ($messageType == 4) {
-        $message = $AlMarMessages[$index];
-        $subject = $AlMarSubjects[$index];
-        $date = $AlMarDates[$index];
-        $url = $AlMarUrls[$index];
-    } else {
-        print "Invalid message type: $messageType\n";
-        writeLog("Invalid message type: $messageType");
-        return;
-    }
-    
-    my $body = extractTextFromUrl($url);
-
-    print "Checking watchers for $messageTypeName message number $messageNumber...\n";
-    print "There are " . scalar @watchers . " total watchers\n";
-
-    writeLog("Checking watchers for $messageTypeName message number $messageNumber...");
-    writeLog("There are " . scalar @watchers . " total watchers");
-
-    #print "Body: $body\n";
-
-    # Remove any escape sequences from the message, subject, and date
-    $message =~ s/\e\[\d+m//g;
-    $message =~ s/á//g;
-    $message =~ s/Â//g;
-    $message =~ s/\s+/ /g;
-
-    $subject =~ s/\e\[\d+m//g;
-    $subject =~ s/á//g;
-    $subject =~ s/Â//g;
-    $subject =~ s/\s+/ /g;
-
-    $date =~ s/\e\[\d+m//g;
-    $date =~ s/á//g;
-    $date =~ s/Â//g;
-    $date =~ s/\s+/ /g;
-
-    our @notificationEmails = ();
-    our @notificationIndexes = ();
-
-    #Iterate through each watcher
-    foreach my $watcher (@watchers) {
-        my $matched = 0;
-        my $matchedWatcher;
-        #Check if the subject contains any of the watcher's subject keywords
-        my $subjectKeyword = $watcher->{subjectKeyword} || "";
-        #Check to ensure the keyword is not empty and that is is found in the subject
-        if ($subjectKeyword !~ /^\s*$/ && $subject =~ /$subjectKeyword/i) {
-            $matched = 1;
-            $matchedWatcher = $watcher;
-            print "Subject matched ($subjectKeyword) for watcher " . $watcher->{name} . "\n";
-            writeLog("Subject matched ($subjectKeyword) for watcher " . $watcher->{name});
-        }
-        else {
+    else {
+        if ($subjectKeyword and $subjectKeyword ne "") {
             print "Subject did not match ($subjectKeyword) for watcher " . $watcher->{name} . "\n";
             writeLog("Subject did not match ($subjectKeyword) for watcher " . $watcher->{name});
-        }
-        #Check if the body contains the watcher's body keyword in its entirety
-        my $bodyKeyword = $watcher->{bodyKeyword} || "";
-        if ($bodyKeyword !~ /^\s*$/ && $body =~ /\b$bodyKeyword\b/i) {
-            $matched += 2;
-            $matchedWatcher = $watcher;
-            print "Body matched ($bodyKeyword) for watcher " . $watcher->{name} . "\n";
-            writeLog("Body matched ($bodyKeyword) for watcher " . $watcher->{name});
         } else {
+            print "No subject keyword for watcher: " . $watcher->{name} . "\n";
+            writeLog("No subject keyword for watcher: " . $watcher->{name});
+        }
+    }
+    #Check if the body contains the watcher's body keyword in its entirety
+    my $bodyKeyword = $watcher->{bodyKeyword} || "";
+    if ($bodyKeyword !~ /^\s*$/ && $body =~ /\b$bodyKeyword\b/i) {
+        $matched += 2;
+        $matchedWatcher = $watcher;
+        print "Body matched ($bodyKeyword) for watcher " . $watcher->{name} . "\n";
+        writeLog("Body matched ($bodyKeyword) for watcher " . $watcher->{name});
+    } else {
+        if ($bodyKeyword and $bodyKeyword ne "") {
             print "Body did not match ($bodyKeyword) for watcher " . $watcher->{name} . "\n";
             writeLog("Body did not match ($bodyKeyword) for watcher " . $watcher->{name});
+        } else {
+            print "No body keyword for watcher: " . $watcher->{name} . "\n";
+            writeLog("No body keyword for watcher: " . $watcher->{name});
+        }
+    }
+
+        my $matchedOn = "";
+        if ($matched) {
+        if ($matched == 1) {
+            $matchedOn = "Subject";
+        } elsif ($matched == 2) {
+            $matchedOn = "Body";
+        } elsif ($matched == 3) {
+            $matchedOn = "Subject and Body";
         }
 
-         if ($matched) {
-            my $matchedOn = "";
-            if ($matched == 1) {
-                $matchedOn = "Subject";
-            } elsif ($matched == 2) {
-                $matchedOn = "Body";
-            } elsif ($matched == 3) {
-                $matchedOn = "Subject and Body";
+        my $selectedEmailAddress = $matchedWatcher->{email};
+        my $selectedPhoneNumber = $matchedWatcher->{phone};
+
+        my $subjectKeyword = $matchedWatcher->{subjectKeyword};
+        my $bodyKeyword = $matchedWatcher->{bodyKeyword};
+
+        #Print Matched Message Information
+        print "-------------------------------------------------\n";
+        print "Watcher: " . $matchedWatcher->{name} . " matched on $matchedOn\n";
+        print "Watcher Email: " . $selectedEmailAddress . "\n";
+        print "Watcher Phone: " . $matchedWatcher->{phone} . "\n";
+        print "Watcher Subject Keyword: $subjectKeyword \n";
+        print "Watcher Body Keyword: $bodyKeyword \n";
+        print "-------------------------------------------------\n";
+
+        writeLog("-------------------------------------------------");
+        writeLog("Watcher: " . $matchedWatcher->{name} . " matched on $matchedOn");
+        writeLog("Watcher Email: " . $selectedEmailAddress);
+        writeLog("Watcher Phone: " . $matchedWatcher->{phone});
+        writeLog("Watcher Subject Keyword: $subjectKeyword");
+        writeLog("Watcher Body Keyword: $bodyKeyword");
+        writeLog("-------------------------------------------------");
+
+        my $matchedText;
+        if ($matchedOn eq "Subject") {
+            $matchedText = $subjectKeyword;
+            #If there is a body keyword, skip to next watcher
+            if ($bodyKeyword and $bodyKeyword ne "") {
+                print "Partial match found (Subject($subjectKeyword), but no body($bodyKeyword)). Skipping to next watcher...\n";
+                writeLog("Partial match found (Subject($subjectKeyword), but no Body($bodyKeyword)). Skipping to next watcher...");
+                next;
             }
-
-            my $selectedEmailAddress = $matchedWatcher->{email};
-
-            #Print Matched Message Information
-            print "-------------------------------------------------\n";
-            print "Watcher: " . $matchedWatcher->{name} . " matched on $matchedOn\n";
-            print "Watcher Email: " . $selectedEmailAddress . "\n";
-            print "Watcher Phone: " . $matchedWatcher->{phone} . "\n";
-            print "Watcher Subject Keyword: " . $matchedWatcher->{subjectKeyword} . "\n";
-            print "Watcher Body Keyword: " . $matchedWatcher->{bodyKeyword} . "\n";
-
-            writeLog("-------------------------------------------------");
-            writeLog("Watcher: " . $matchedWatcher->{name} . " matched on $matchedOn");
-            writeLog("Watcher Email: " . $selectedEmailAddress);
-            writeLog("Watcher Phone: " . $matchedWatcher->{phone});
-            writeLog("Watcher Subject Keyword: " . $matchedWatcher->{subjectKeyword});
-            writeLog("Watcher Body Keyword: " . $matchedWatcher->{bodyKeyword});
-
-            my $matchedText;
-            if ($matchedOn eq "Subject") {
-                $matchedText = $matchedWatcher->{subjectKeyword};
-            } elsif ($matchedOn eq "Body") {
-                $matchedText = $matchedWatcher->{bodyKeyword};
-            } elsif ($matchedOn eq "Subject and Body") {
-                $matchedText = $matchedWatcher->{subjectKeyword} . " and " . $matchedWatcher->{bodyKeyword};
+        } elsif ($matchedOn eq "Body") {
+            $matchedText = $bodyKeyword;
+            #If there is a subject keyword, skip to next watcher
+            if ($subjectKeyword and $subjectKeyword ne "") {
+                print "Partial match found (Body($bodyKeyword), but no Subject($subjectKeyword)). Skipping to next watcher...\n";
+                writeLog("Partial match found (Body($bodyKeyword), but no Subject($subjectKeyword)). Skipping to next watcher...");
+                next;
             }
+        } elsif ($matchedOn eq "Subject and Body") {
+            $matchedText = $subjectKeyword . " and " . $bodyKeyword;
+        }
 
-            my $openingStatement = "You are receiving this message because you have an active message watcher and it matched on the following criteria: $matchedText found in $matchedOn\n\nThe following keywords were matched: \nSubject Keyword: " . $matchedWatcher->{subjectKeyword} . "\nBody Keyword: " . $matchedWatcher->{bodyKeyword} . "\nThe following message was found:\n\n";
+        my $openingStatement = "You are receiving this message because you have an active message watcher and it matched on the following criteria: $matchedText found in $matchedOn\n\nThe following keywords were matched: \nSubject Keyword: " . $subjectKeyword . "\nBody Keyword: " . $bodyKeyword . "\nThe following message was found:\n\n";
 
-            my $finalMessage = $openingStatement . $body;
+        my $finalMessage = $openingStatement . $body;
 
-            
-            my $alreadyNotified = 0;
-            my $index = 0;
-            #check if $selectedEmailAddress exists within @notificationEmails
-            foreach my $email (@notificationEmails) {
-                if ($email eq $selectedEmailAddress) {
-                    #Check if $messageNumber is equal to $notificationIndexes[$index]
-                    if ($messageNumber == $notificationIndexes[$index]) {
-                        $alreadyNotified = 1;
-                    } 
-                }
+        
+        my $alreadyNotified = 0;
+        my $index = 0;
+        #check if $selectedEmailAddress exists within @notificationEmails
+        foreach my $email (@notificationEmails) {
+            if ($email eq $selectedEmailAddress) {
+                #Check if $messageNumber is equal to $notificationIndexes[$index]
+                if ($messageNumber == $notificationIndexes[$index]) {
+                    $alreadyNotified = 1;
+                } 
             }
+        }
 
-            if (not $alreadyNotified) {
-                push @notificationEmails, $selectedEmailAddress;
-                push @notificationIndexes, $messageNumber;
-                if ($selectedEmailAddress and $selectedEmailAddress ne "") {
-                    emailNotification($selectedEmailAddress, 'rgagnier06@gmail.com', 'noreply@navadminwatcher.com', "New $messageTypeName Message Found", $finalMessage);
-                } else {
-                    print "No email address found for watcher " . $matchedWatcher->{name} . "\n";
-                    writeLog("No email address found for watcher " . $matchedWatcher->{name});
-                }
+        if (not $alreadyNotified) {
+            push @notificationEmails, $selectedEmailAddress;
+            push @notificationIndexes, $messageNumber;
+            if ($selectedEmailAddress and $selectedEmailAddress ne "") {
+                emailNotification($selectedEmailAddress, 'rgagnier06@gmail.com', 'noreply@navadminwatcher.com', "New $messageTypeName Message Found", $finalMessage);
             } else {
-                print "Already notified " . $selectedEmailAddress . " for message number $messageNumber\n";
-                writeLog("Already notified " . $selectedEmailAddress . " for message number $messageNumber");
+                print "No email address found for watcher " . $matchedWatcher->{name} . "\n";
+                writeLog("No email address found for watcher " . $matchedWatcher->{name});
             }
-            
-            #sleep for 1 second
-            sleep 1;
-
+        } else {
+            print "Already notified " . $selectedEmailAddress . " for message number $messageNumber\n";
+            writeLog("Already notified " . $selectedEmailAddress . " for message number $messageNumber");
         }
+        
+        #sleep for 1 second
+        sleep 1;
 
     }
-    writeLog("Finished checking watchers for message number $messageNumber");
+
+}
+writeLog("Finished checking watchers for message number $messageNumber");
 }
 
 sub writeLog {
